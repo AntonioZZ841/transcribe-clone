@@ -55,6 +55,7 @@ src/
   analysis/          pure, unit-tested DSP (no DOM)
     fft.ts           radix-2 FFT
     pitchSalience.ts peak detection + harmonic-suppressed greedy pitch picking
+    predominantMelody.ts  Melodia-style f0 salience + Viterbi tracking + harmonic subtraction
     chroma.ts        salience-based chroma (offline) + bin-folded chroma (live)
     chordTemplates.ts / chordMatch.ts   jazz template table + weighted scorer
     chordTrack.ts    frames → smoothing → matching → median filter → segments (+key)
@@ -70,16 +71,19 @@ src/
 ### How the chord engine works
 
 1. **Frames** (8192 samples, hop 4096) → magnitude spectrum.
-2. **Pitch salience**: detect spectral peaks (sub-bin interpolated), then greedily pick
+2. **Melody removal**: a predominant-f0 line is tracked over the melody register and its
+   harmonic series subtracted from each spectrum (see *Melody robustness* below), so the
+   harmony is analysed on a melody-free spectrum.
+3. **Pitch salience**: detect spectral peaks (sub-bin interpolated), then greedily pick
    fundamentals — each accepted note damps its harmonics so overtones aren't re-counted
    (a note's 3rd harmonic otherwise pollutes the chroma a perfect 12th up and drowns real
    7ths/extensions).
-3. **Chroma**: picked fundamentals fold into a 12-bin vector (√-compressed so a softly voiced
+4. **Chroma**: picked fundamentals fold into a 12-bin vector (√-compressed so a softly voiced
    7th still registers), plus a separate bass-register chroma.
-4. **Matching**: every root × quality template scored as weighted-match − outside-energy
+5. **Matching**: every root × quality template scored as weighted-match − outside-energy
    penalty − complexity penalty + bass bonus (the bass evidence resolves `C6` vs `Am7` and
    symmetric `dim7` roots, and yields slash chords).
-5. **Track**: temporal smoothing → per-frame labels → median filter → merge into segments,
+6. **Track**: temporal smoothing → per-frame labels → median filter → merge into segments,
    drop blips, estimate key (Krumhansl profiles), estimate a voicing per segment.
 
 Accuracy is tested end-to-end in `src/analysis/__tests__/demoEval.test.ts` against the
@@ -130,10 +134,15 @@ pollute the chroma. Four counter-measures are implemented (gated by
 `demoMelodyEval.test.ts`, which runs an adversarial clip — the same progression with a loud
 eighth-note melody incl. chromatic passing tones — and requires 8/8 bars):
 
-1. **Melody tracking + subtraction** (`melodyTrack.ts`) — the strong, *moving* top voice is
-   linked frame-to-frame (jump-penalized continuity, Melodia-style heuristic) and its picks
-   are excluded before chroma folding. The mobility gate is what protects held chord tones:
-   a static top note (e.g. a sustained 7th) is treated as harmony, a moving line as melody.
+1. **Predominant-f0 tracking + harmonic subtraction** (`predominantMelody.ts`) — a
+   Melodia-style pipeline: a harmonic-summation **salience** over the melody register, **Viterbi**
+   contour tracking for a smooth continuity-favoured line, a voicing threshold, and a **mobility
+   gate** (a *static* top voice is a held chord tone, not a melody — leaving it alone is what
+   stops block-chord voicings from being gutted). The tracked melody is then removed by
+   **subtracting its harmonic series** (f0, 2f0, 3f0, …, refined to the nearest spectral peak)
+   from each magnitude spectrum *before* the harmony is analysed — so the melody and the
+   overtones it sprays across other pitch classes are gone, not merely one pick excluded. (This
+   replaced an earlier pick-exclusion heuristic.)
 2. **Stability smoothing** (`chordTrack.ts`) — per-pitch-class *median* over the smoothing
    window instead of a mean: a passing tone lighting a pitch class for 1–3 frames is crushed;
    sustained harmony survives.
@@ -146,15 +155,14 @@ eighth-note melody incl. chromatic passing tones — and requires 8/8 bars):
    vocal/melody) cancels exactly, while panned accompaniment survives. Cheapest possible
    source separation; try it when the lead sits center.
 
-### Heavier methods that directly extract/subtract the melody (not yet implemented)
+### Heavier melody-extraction methods
 
-- **Predominant-f0 tracking + harmonic subtraction** — track the melody's fundamental with
-  [Melodia](https://www.upf.edu/web/mtg/melodia)-style salience, [pYIN](https://code.soundsoftware.ac.uk/projects/pyin),
-  or [CREPE](https://github.com/marl/crepe) (deep, runs in ONNX/TF.js), then remove the
-  melody as a sinusoidal model: subtract its partials (`f0`, `2f0`, `3f0`, …) from the
-  spectrum before chord analysis. This is the rigorous version of `melodyTrack.ts` and slots
-  in behind the same interface (frame picks in → excluded pitches out, or spectrum in →
-  cleaned spectrum out).
+- **Predominant-f0 tracking + harmonic subtraction** — **implemented** (`predominantMelody.ts`,
+  see above): [Melodia](https://www.upf.edu/web/mtg/melodia)-style harmonic-summation salience +
+  Viterbi tracking + sinusoidal-model subtraction of the melody's partials from the spectrum.
+  A heavier f0 front-end ([pYIN](https://code.soundsoftware.ac.uk/projects/pyin) or
+  [CREPE](https://github.com/marl/crepe), deep, runs in ONNX/TF.js) could replace the salience
+  stage behind the same interface (spectrum in → cleaned spectrum out).
 - **HPSS** (harmonic–percussive source separation, Fitzgerald median-filtering) — cheap
   spectrogram-domain split that removes drums/transients; helps chroma on full mixes and is
   implementable in ~50 lines on the existing STFT.

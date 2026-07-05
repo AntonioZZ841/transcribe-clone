@@ -128,9 +128,11 @@ export function reconcileVoicing(
   for (const { pc } of templatePcs) {
     if (roundTrips()) break;
     if (midis.some((m) => ((m % 12) + 12) % 12 === pc)) continue;
-    // place the implied tone nearest the middle of the voicing, above the bass
+    // place the implied tone nearest the middle of the voicing — raising by
+    // whole octaves (which preserves the pitch class) to sit above the bass
+    // and avoid a duplicate midi
     let m = pc + 12 * Math.round((median - pc) / 12);
-    if (midis.length) m = Math.max(m, midis[0] + 1);
+    if (midis.length) while (m <= midis[0]) m += 12;
     while (midis.includes(m)) m += 12;
     midis.push(m);
     midis.sort((a, b) => a - b);

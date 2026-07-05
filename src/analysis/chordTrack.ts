@@ -1,12 +1,16 @@
-// Offline whole-file chord analysis: frame -> pitch picks -> melody
-// subtraction -> chroma -> stability smoothing -> match -> median filter ->
-// segment -> per-segment voicing. Pure function of samples, so it runs
-// identically in the worker and in tests.
+// Offline whole-file chord analysis: frame -> melody f0 tracking + harmonic
+// subtraction -> pitch picks -> chroma -> stability smoothing -> match ->
+// median filter -> segment -> per-segment voicing. Pure function of samples,
+// so it runs identically in the worker and in tests.
 
 import { magnitudeSpectrum } from './fft';
 import { bandEnergy, foldPicks, normalize } from './chroma';
-import { SaliencePicker, type PickedPitch } from './pitchSalience';
-import { trackMelody } from './melodyTrack';
+import { SaliencePicker } from './pitchSalience';
+import {
+  frameSalience,
+  subtractMelodyHarmonics,
+  trackPredominantMelody,
+} from './predominantMelody';
 import { labelFor, matchChord } from './chordMatch';
 import { estimateVoicing, reconcileVoicing } from './voicing';
 import { NOTE_NAMES, nameToPc, type ChordSegment, type ChordTrack } from '../types';
@@ -39,33 +43,45 @@ export function analyzeChords(
   const nFrames = Math.max(0, Math.floor((samples.length - FFT_SIZE) / HOP) + 1);
   if (nFrames === 0) return { key: null, segments: [] };
 
-  // 1) per-frame pitch picks (harmonic-suppressed)
-  const framePicks: PickedPitch[][] = [];
+  // 1) per-frame spectra + a melody-register salience function
+  const rawMags: Float32Array[] = [];
+  const saliences: Float32Array[] = [];
   const energies: number[] = [];
   for (let i = 0; i < nFrames; i++) {
     const frame = samples.subarray(i * HOP, i * HOP + FFT_SIZE);
     const mags = magnitudeSpectrum(frame);
+    rawMags.push(mags);
     energies.push(bandEnergy(mags, sampleRate, FFT_SIZE));
-    const picker = new SaliencePicker(mags, sampleRate, FFT_SIZE);
-    framePicks.push(picker.pick({ midiLo: 28, midiHi: 96, maxNotes: 10 }));
-    if (i % 32 === 0) opts.onProgress?.((0.6 * i) / nFrames);
+    saliences.push(frameSalience(new SaliencePicker(mags, sampleRate, FFT_SIZE)));
+    if (i % 32 === 0) opts.onProgress?.((0.4 * i) / nFrames);
   }
 
-  // 1b) track the lead melody (strong, *moving* top voice) so its passing
-  //     tones can be subtracted from the harmony evidence
-  const melody = trackMelody(framePicks);
+  // 1b) predominant-f0 melody tracking (Viterbi over the salience + a
+  //     mobility gate so held chord tones are NOT mistaken for melody)
+  const melody = trackPredominantMelody(saliences);
+  const melodyMidi = melody.map((p) => p.midi);
 
-  // 1c) fold picks (minus melody) into per-frame chroma
+  // 1c) subtract the melody's harmonic series from each spectrum, then derive
+  //     the harmony picks + chroma from the *cleaned* spectrum
   const chromas: Float32Array[] = [];
   const bassChromas: Float32Array[] = [];
   const keyChroma = new Float32Array(12);
   for (let i = 0; i < nFrames; i++) {
+    const midi = melodyMidi[i];
+    const cleaned =
+      midi !== null ? subtractMelodyHarmonics(rawMags[i], midi, sampleRate, FFT_SIZE) : rawMags[i];
+    const picks = new SaliencePicker(cleaned, sampleRate, FFT_SIZE).pick({
+      midiLo: 28,
+      midiHi: 96,
+      maxNotes: 10,
+    });
     const chroma = new Float32Array(12);
     const bassChroma = new Float32Array(12);
-    foldPicks(framePicks[i], melody[i], chroma, bassChroma);
+    foldPicks(picks, null, chroma, bassChroma); // melody already gone from the spectrum
     chromas.push(chroma);
     bassChromas.push(bassChroma);
     for (let pc = 0; pc < 12; pc++) keyChroma[pc] += chroma[pc];
+    if (i % 32 === 0) opts.onProgress?.(0.4 + (0.3 * i) / nFrames);
   }
 
   // 2) stability smoothing + matching: per-pitch-class *median* over the
@@ -174,7 +190,7 @@ export function analyzeChords(
     for (let s = 0; s < segments.length; s++) {
       const seg = segments[s];
       if (seg.root && seg.quality) {
-        const melodyNotes = melodyNotesInSpan(melody, seg.start, seg.end, frameOffset, frameSec);
+        const melodyNotes = melodyNotesInSpan(melodyMidi, seg.start, seg.end, frameOffset, frameSec);
         const voiced = segmentVoicing(samples, sampleRate, seg, melodyNotes);
         // reconcile so the printed label and the drawn voicing agree: complete
         // the shell if a defining tone was missed, and take the slash from the
