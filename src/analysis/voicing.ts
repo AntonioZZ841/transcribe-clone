@@ -19,6 +19,9 @@ const MAX_NOTES = 6;
  * @param rootName chord root, e.g. "D"
  * @param quality  quality key, e.g. "m7"
  * @param bassName slash bass name or null
+ * @param excludeMidi notes belonging to the tracked lead melody, removed from
+ *   the voicing so the staff shows the comping/harmony, not the melodic line.
+ *   Their spectral partials are also damped so they don't inflate lower picks.
  * @returns note names low->high, e.g. ["D2","A3","C4","F4"]
  */
 export function estimateVoicing(
@@ -28,12 +31,15 @@ export function estimateVoicing(
   rootName: string,
   quality: string,
   bassName: string | null,
+  excludeMidi?: Set<number>,
 ): string[] {
   const rootPc = nameToPc(rootName);
   const chordPcs = new Set(qualityPcs(quality).map((iv) => (rootPc + iv) % 12));
   const bassPc = bassName ? nameToPc(bassName) : rootPc;
 
   const picker = new SaliencePicker(mags, sampleRate, fftSize);
+  // remove the melody's spectral contribution before estimating the voicing
+  if (excludeMidi) for (const m of excludeMidi) picker.suppress(m);
   const accepted: number[] = [];
 
   // 1) bass first: strongest low-register candidate, biased toward the
@@ -43,6 +49,7 @@ export function estimateVoicing(
   for (let m = MIDI_LO; m <= BASS_MIDI_HI; m++) {
     const pc = m % 12;
     if (!chordPcs.has(pc)) continue;
+    if (excludeMidi && excludeMidi.has(m)) continue;
     const ev = picker.evidence(m) * (pc === bassPc ? 1.35 : 1);
     if (ev > bassEv) {
       bassEv = ev;
@@ -61,6 +68,7 @@ export function estimateVoicing(
     maxNotes: MAX_NOTES - accepted.length,
     minRelEvidence: 0.12,
     pcFilter: chordPcs,
+    excludeMidi,
   });
   for (const p of rest) {
     if (!accepted.some((a) => Math.abs(a - p.midi) < 1)) accepted.push(p.midi);

@@ -158,12 +158,14 @@ export function analyzeChords(
   }
   segments = kept;
 
-  // 6) voicings per segment (skip N.C.)
+  // 6) voicings per segment (skip N.C.), excluding the tracked lead melody so
+  //    the sheet shows the comping/harmony rather than the melodic line
   if (opts.voicings !== false) {
     for (let s = 0; s < segments.length; s++) {
       const seg = segments[s];
       if (seg.root && seg.quality) {
-        seg.notes = segmentVoicing(samples, sampleRate, seg);
+        const melodyNotes = melodyNotesInSpan(melody, seg.start, seg.end, frameOffset, frameSec);
+        seg.notes = segmentVoicing(samples, sampleRate, seg, melodyNotes);
       }
       if (s % 4 === 0) opts.onProgress?.(0.85 + (0.15 * s) / segments.length);
     }
@@ -173,11 +175,29 @@ export function analyzeChords(
   return { key: estimateKey(keyChroma), segments };
 }
 
+/** Distinct tracked-melody midi notes whose frame falls within [start, end). */
+function melodyNotesInSpan(
+  melody: (number | null)[],
+  start: number,
+  end: number,
+  frameOffset: number,
+  frameSec: number,
+): Set<number> {
+  const notes = new Set<number>();
+  const i0 = Math.max(0, Math.floor((start - frameOffset) / frameSec));
+  const i1 = Math.min(melody.length - 1, Math.ceil((end - frameOffset) / frameSec));
+  for (let i = i0; i <= i1; i++) {
+    if (melody[i] !== null) notes.add(melody[i]!);
+  }
+  return notes;
+}
+
 /** Averaged spectrum over the middle of the segment -> voicing estimate. */
 function segmentVoicing(
   samples: Float32Array,
   sampleRate: number,
   seg: ChordSegment,
+  excludeMidi?: Set<number>,
 ): string[] {
   const startSample = Math.floor(seg.start * sampleRate);
   const endSample = Math.min(samples.length, Math.floor(seg.end * sampleRate));
@@ -197,7 +217,7 @@ function segmentVoicing(
     used++;
   }
   if (used === 0) return [];
-  return estimateVoicing(avg, sampleRate, FFT_SIZE, seg.root!, seg.quality!, seg.bass);
+  return estimateVoicing(avg, sampleRate, FFT_SIZE, seg.root!, seg.quality!, seg.bass, excludeMidi);
 }
 
 function medianFilterLabels(frames: FrameResult[], window: number): FrameResult[] {

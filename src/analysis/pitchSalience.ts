@@ -33,6 +33,8 @@ export interface PickOptions {
   minRelEvidence?: number;
   /** restrict candidates to these pitch classes */
   pcFilter?: Set<number>;
+  /** never pick these exact midi notes (e.g. tracked melody notes) */
+  excludeMidi?: Set<number>;
 }
 
 /**
@@ -110,6 +112,7 @@ export class SaliencePicker {
       maxNotes = 10,
       minRelEvidence = 0.08,
       pcFilter,
+      excludeMidi,
     } = opts;
 
     const picked: PickedPitch[] = [];
@@ -119,6 +122,7 @@ export class SaliencePicker {
       let bestEv = 0;
       for (let m = midiLo; m <= midiHi; m++) {
         if (pcFilter && !pcFilter.has(((m % 12) + 12) % 12)) continue;
+        if (excludeMidi && excludeMidi.has(m)) continue;
         if (picked.some((p) => p.midi === m)) continue;
         const ev = this.evidence(m);
         if (ev > bestEv) {

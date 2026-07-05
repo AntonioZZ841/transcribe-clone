@@ -71,6 +71,24 @@ describe('estimateVoicing', () => {
     const notes = estimateVoicing(mags, SR, size, 'C', 'maj7', 'E');
     expect(notes[0]).toBe('E2');
   });
+
+  it('excludes a tracked melody note from the voicing', () => {
+    const size = 8192;
+    // Dm7 comp (D2 A3 C4 F4) + a loud melody E5 (a chord-tone octave? no: E is
+    // not in Dm7 — but use A5 which IS a chord tone to prove exclusion works
+    // even when the melody note shares a chord pitch class)
+    const comp = [38, 57, 60, 65]; // D2 A3 C4 F4
+    const melodyMidi = 81; // A5 — same pc as A3, would otherwise appear on top
+    const mags = magnitudeSpectrum(
+      sines([...comp, melodyMidi].map(midiToFreq), size, [1, 0.8, 0.7, 0.7, 1.1]),
+    );
+    const without = estimateVoicing(mags, SR, size, 'D', 'm7', null);
+    const withExcl = estimateVoicing(mags, SR, size, 'D', 'm7', null, new Set([melodyMidi]));
+    expect(without).toContain('A5'); // melody would normally be picked
+    expect(withExcl).not.toContain('A5'); // excluded
+    expect(withExcl).toContain('D2'); // real voicing preserved
+    expect(withExcl).toContain('C4');
+  });
 });
 
 describe('analyzeChords end-to-end on synthetic audio', () => {
