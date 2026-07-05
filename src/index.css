@@ -1,0 +1,360 @@
+:root {
+  color-scheme: dark;
+  --bg: #14161a;
+  --panel: #1d2026;
+  --panel-2: #23262e;
+  --border: #33363f;
+  --text: #e6e8ee;
+  --text-dim: #9aa0ac;
+  --accent: #4fa3ff;
+  --accent-2: #ffb347;
+  --wave: #3f7fbf;
+  --wave-dim: #2a4f77;
+  --loop: rgba(255, 179, 71, 0.18);
+  --playhead: #ff5d5d;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 720px;
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 16px 40px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0 12px;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.app-header .file-name {
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08111c;
+  font-weight: 600;
+}
+
+button.active {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #221600;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input[type='range'] {
+  accent-color: var(--accent);
+}
+
+input[type='text'],
+input[type='number'],
+select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.waveform-wrap {
+  position: relative;
+  user-select: none;
+}
+
+.waveform-wrap canvas {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  background: #101216;
+  cursor: text;
+}
+
+.analysis-progress {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 18, 22, 0.55);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: center;
+}
+
+.transport .group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transport .group label {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.transport .value {
+  font-size: 12px;
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-display {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--text);
+  min-width: 110px;
+}
+
+.now-chord {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.now-chord .label {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--accent-2);
+  min-width: 120px;
+  text-align: right;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.now-chord .sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tabs button.active {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.spectrum-canvas,
+.piano-canvas {
+  display: block;
+  width: 100%;
+  background: #101216;
+  border-radius: 6px;
+}
+
+.piano-canvas {
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.lead-sheet .grid-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.lead-sheet .grid-controls label {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.lead-sheet .key-line {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-left: 2px solid var(--text-dim);
+}
+
+.sheet .bar {
+  border-right: 1.5px solid var(--text-dim);
+  min-height: 56px;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.sheet .bar:hover {
+  background: var(--panel-2);
+}
+
+.sheet .bar.current {
+  background: rgba(79, 163, 255, 0.12);
+}
+
+.sheet .bar .chord {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.sheet .bar .repeat {
+  font-size: 22px;
+  color: var(--text-dim);
+  font-weight: 700;
+  width: 100%;
+  text-align: center;
+}
+
+.sheet .bar .bar-num {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 9px;
+  color: #555a66;
+}
+
+.loop-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.loop-list td,
+.loop-list th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.loop-list th {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.voicing-sheet .row {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.voicing-sheet .row .click-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.voicing-sheet .row .click-layer div {
+  cursor: pointer;
+}
+
+.voicing-sheet .row .click-layer div:hover {
+  background: rgba(79, 163, 255, 0.08);
+}
+
+.voicing-sheet svg {
+  background: #f7f4ec;
+  border-radius: 6px;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.kbd {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: Consolas, monospace;
+}
