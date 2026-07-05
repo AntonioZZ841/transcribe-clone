@@ -7,15 +7,16 @@ import { magnitudeSpectrum } from './fft';
 import { bandEnergy, foldPicks, normalize } from './chroma';
 import { SaliencePicker, type PickedPitch } from './pitchSalience';
 import { trackMelody } from './melodyTrack';
-import { matchChord } from './chordMatch';
-import { estimateVoicing } from './voicing';
-import { NOTE_NAMES, type ChordSegment, type ChordTrack } from '../types';
+import { labelFor, matchChord } from './chordMatch';
+import { estimateVoicing, reconcileVoicing } from './voicing';
+import { NOTE_NAMES, nameToPc, type ChordSegment, type ChordTrack } from '../types';
 
 export const FFT_SIZE = 8192;
 export const HOP = 4096;
 const SMOOTH_FRAMES = 4; // ± frames of chroma stability window
 const MEDIAN_WINDOW = 5; // label median filter
 const MIN_SEGMENT_SEC = 0.35;
+const BASS_EMPHASIS = 0.45; // how strongly the bass register weights the chroma
 
 export interface AnalyzeOptions {
   onProgress?: (fraction: number) => void;
@@ -91,13 +92,22 @@ export function analyzeChords(
       windowVals.sort((a, b) => a - b);
       smoothed[pc] = windowVals[Math.floor(windowVals.length / 2)];
       stability[pc] = activeCount / windowLen;
-      windowVals.length = 0;
-      for (let j = j0; j <= j1; j++) windowVals.push(bassChromas[j][pc]);
-      windowVals.sort((a, b) => a - b);
-      smoothedBass[pc] = windowVals[Math.floor(windowVals.length / 2)];
+      // bass: MEAN over the window (not median) so the metrically-strong bass
+      // root — often sounding on only the downbeat of a walking line — still
+      // accumulates instead of being filtered out as a minority note
+      let bassSum = 0;
+      for (let j = j0; j <= j1; j++) bassSum += bassChromas[j][pc];
+      smoothedBass[pc] = bassSum / windowLen;
     }
     normalize(smoothed);
     normalize(smoothedBass);
+    // bass emphasis: fold a share of the bass-register chroma into the main
+    // chroma so the sounding bass root carries real weight. Without this, a
+    // rootless comping voicing (3rd-5th-7th) outvotes the bass and the chord
+    // is misheard as rooted on its 3rd (F7's A-C-Eb reads as Adim). Emphasizing
+    // the bass makes chords that omit the bass note pay the outside penalty.
+    for (let pc = 0; pc < 12; pc++) smoothed[pc] += BASS_EMPHASIS * smoothedBass[pc];
+    normalize(smoothed);
     // silence gate relative to the track's own level
     const silent = energies[i] < meanEnergy * 0.02;
     const cand = silent ? null : matchChord(smoothed, smoothedBass, energies[i], stability);
@@ -165,7 +175,19 @@ export function analyzeChords(
       const seg = segments[s];
       if (seg.root && seg.quality) {
         const melodyNotes = melodyNotesInSpan(melody, seg.start, seg.end, frameOffset, frameSec);
-        seg.notes = segmentVoicing(samples, sampleRate, seg, melodyNotes);
+        const voiced = segmentVoicing(samples, sampleRate, seg, melodyNotes);
+        // reconcile so the printed label and the drawn voicing agree: complete
+        // the shell if a defining tone was missed, and take the slash from the
+        // actual lowest note
+        if (voiced.length > 0) {
+          const { notes, bassPc } = reconcileVoicing(seg.root, seg.quality, voiced);
+          seg.notes = notes;
+          const rootPc = nameToPc(seg.root);
+          seg.bass = bassPc !== null ? NOTE_NAMES[bassPc] : null;
+          seg.label = labelFor(rootPc, seg.quality, bassPc);
+        } else {
+          seg.notes = voiced;
+        }
       }
       if (s % 4 === 0) opts.onProgress?.(0.85 + (0.15 * s) / segments.length);
     }

@@ -85,6 +85,44 @@ src/
 Accuracy is tested end-to-end in `src/analysis/__tests__/demoEval.test.ts` against the
 bundled demo clip (8/8 bars, including `Am7b5` and slash-bass cases).
 
+## Label ↔ voicing consistency
+
+The printed chord label (lead sheet) and the drawn voicing (sheet music) are reconciled so they
+always tell the same story, in both directions (`reconcileVoicing` in `voicing.ts`):
+
+- **label → voicing**: if the estimated voicing is missing a *defining* tone (so the notes alone
+  wouldn't be recognized as the named chord), the minimal shell is completed — highest-weight
+  template tones first — until the voicing's pitch classes round-trip through the matcher to the
+  same root+quality. Nothing is added when the voicing already suffices.
+- **voicing → label**: the notated slash is taken from the actual lowest drawn note, so
+  `Cmaj7/E` prints iff E is really at the bottom of the staff.
+
+`jazzTracks.test.ts` asserts this invariant on every segment of three synthesized jazz
+arrangements: for each chord, a binary chroma of the drawn voicing must re-detect as the printed
+label, and the slash must equal the lowest note.
+
+## Bass emphasis (rootless voicings)
+
+Jazz piano voicings are often *rootless* (3rd–5th–7th only) — and e.g. F7's `A C Eb` is literally
+an A-diminished triad. Without the bass, the matcher hears the third as the root (`F7` → `Adim`).
+So the analysis (a) tracks the actual **bass line** as the single lowest sounding note per frame,
+(b) mean-smooths it (a walking-bass root lands on the downbeat only, so a median would filter it
+out), and (c) folds a share (`BASS_EMPHASIS`) into the chroma, so chords that omit the sounding
+bass pay the outside penalty. This keeps slash/inversion handling intact while fixing rootless
+voicings.
+
+### Checking against jazz material
+
+`jazzTracks.test.ts` synthesizes three real jazz-standard *progressions* (a chord progression
+isn't copyrightable; the audio is generated fresh) as full arrangements — root-oriented bass +
+rootless piano comping + a bebop melody: a 12-bar F blues, Rhythm-changes-style A section in Bb,
+and a minor ii-V-i cycle in Gm. Observed: **~75–88% of bar roots correct**, and **100% label ↔
+voicing consistency**. Honest limitations on this hard material: chord *qualities* are sometimes
+reduced (a softly-comped 7th drops to a triad, e.g. `Bbmaj7` → `Bb`), and a fully *chromatic*
+walking bass (as opposed to a root-emphasizing two-feel) stays ambiguous without beat-synchronous
+analysis — the natural next step, since the bar grid already exists. Real commercial recordings
+can't be bundled (copyright), but the app analyzes any file you drop in.
+
 ## Melody robustness
 
 Real recordings put a lead melody on top of the harmony — non-chord passing tones that

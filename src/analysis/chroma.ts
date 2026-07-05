@@ -23,7 +23,8 @@ const BASS_FMAX = 262; // ~C4; bass evidence register
 // real energy that merely fell between bins. Only penalize where resolution
 // is fine enough for "off-pitch" to be meaningful.
 const TUNE_WEIGHT_FMIN = 600;
-const BASS_MIDI_MAX = 59; // below C4 counts as bass evidence
+const BASS_MIDI_MAX = 47; // <= B2: the bass-instrument register. Kept low so a
+// piano voicing's 3rd/5th around A3-C4 doesn't pollute the bass-root evidence.
 
 /**
  * Fold a magnitude spectrum into pitch classes.
@@ -101,15 +102,22 @@ export function foldPicks(
 ): void {
   chroma.fill(0);
   bassChroma.fill(0);
+  let lowestMidi = Infinity;
+  let lowestPc = -1;
   for (const p of picks) {
     if (excludeMidi !== null && p.midi === excludeMidi) continue;
     const pc = ((p.midi % 12) + 12) % 12;
     const ev = Math.sqrt(p.evidence);
     chroma[pc] += ev;
-    if (p.midi <= BASS_MIDI_MAX) bassChroma[pc] += ev;
+    // bass chroma = the single lowest sounding note (the bass line), not every
+    // low pick — so a piano voicing's low tone doesn't count as "the bass"
+    if (p.midi <= BASS_MIDI_MAX && p.midi < lowestMidi) {
+      lowestMidi = p.midi;
+      lowestPc = pc;
+    }
   }
+  if (lowestPc >= 0) bassChroma[lowestPc] = 1;
   normalize(chroma);
-  normalize(bassChroma);
 }
 
 /** Total band energy of a magnitude spectrum (for silence gating). */

@@ -76,3 +76,10 @@ export const nameToPc = (name: string): PitchClass => {
   };
   return flatMap[name] ?? 0;
 };
+
+/** Inverse of midiToName: "Eb3" -> 51. Returns null if unparseable. */
+export const noteNameToMidi = (name: string): number | null => {
+  const m = name.match(/^([A-G][#b]?)(-?\d+)$/);
+  if (!m) return null;
+  return nameToPc(m[1]) + (parseInt(m[2], 10) + 1) * 12;
+};

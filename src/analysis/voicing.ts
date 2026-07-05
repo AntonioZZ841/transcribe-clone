@@ -5,8 +5,9 @@
 // suppression so overtones don't masquerade as played notes.
 
 import { SaliencePicker } from './pitchSalience';
-import { qualityPcs } from './chordTemplates';
-import { midiToName, nameToPc } from '../types';
+import { CHORD_QUALITIES, qualityPcs } from './chordTemplates';
+import { matchChord } from './chordMatch';
+import { midiToName, nameToPc, noteNameToMidi } from '../types';
 
 const MIDI_LO = 28; // E1
 const MIDI_HI = 84; // C6
@@ -76,4 +77,67 @@ export function estimateVoicing(
 
   accepted.sort((a, b) => a - b);
   return accepted.map(midiToName);
+}
+
+export interface ReconciledVoicing {
+  notes: string[];
+  /** pitch class of the notated bass (slash), or null if the root is lowest */
+  bassPc: number | null;
+}
+
+/**
+ * Make the printed chord label and the drawn voicing tell the same story, in
+ * both directions:
+ *  - label -> voicing: if the estimated voicing is missing a *defining* tone
+ *    (so the notes alone would NOT be recognized as this chord), add the
+ *    minimal shell — highest-weight template tones first — until the voicing's
+ *    pitch classes round-trip through the matcher to the same root+quality.
+ *    Nothing is added when the voicing is already sufficient.
+ *  - voicing -> label: the notated slash is taken from the actual lowest note,
+ *    so `Cmaj7/E` is printed iff E is really at the bottom of the staff.
+ */
+export function reconcileVoicing(
+  rootName: string,
+  quality: string,
+  notes: string[],
+): ReconciledVoicing {
+  const rootPc = nameToPc(rootName);
+  const tpl = CHORD_QUALITIES[quality];
+  const templatePcs = tpl.intervals
+    .map((iv, i) => ({ pc: (rootPc + iv) % 12, w: tpl.weights[i] }))
+    .sort((a, b) => b.w - a.w);
+
+  const midis = notes
+    .map(noteNameToMidi)
+    .filter((m): m is number => m !== null)
+    .sort((a, b) => a - b);
+
+  // Would these pitch classes be recognized as the intended chord? Reference
+  // the root in the bass so the check is about pc-content, not inversion.
+  const roundTrips = (): boolean => {
+    if (midis.length === 0) return false;
+    const chroma = new Float32Array(12);
+    for (const m of midis) chroma[((m % 12) + 12) % 12] = 1;
+    const bass = new Float32Array(12);
+    bass[rootPc] = 1;
+    const r = matchChord(chroma, bass, 1);
+    return r !== null && r.rootPc === rootPc && r.quality === quality;
+  };
+
+  const median = midis.length ? midis[Math.floor(midis.length / 2)] : 60;
+  for (const { pc } of templatePcs) {
+    if (roundTrips()) break;
+    if (midis.some((m) => ((m % 12) + 12) % 12 === pc)) continue;
+    // place the implied tone nearest the middle of the voicing, above the bass
+    let m = pc + 12 * Math.round((median - pc) / 12);
+    if (midis.length) m = Math.max(m, midis[0] + 1);
+    while (midis.includes(m)) m += 12;
+    midis.push(m);
+    midis.sort((a, b) => a - b);
+  }
+
+  const bassPc = midis.length && ((midis[0] % 12) + 12) % 12 !== rootPc
+    ? ((midis[0] % 12) + 12) % 12
+    : null;
+  return { notes: midis.map(midiToName), bassPc };
 }
