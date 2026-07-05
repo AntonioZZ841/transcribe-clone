@@ -124,8 +124,27 @@ and a minor ii-V-i cycle in Gm. Observed: **~75–88% of bar roots correct**, an
 voicing consistency**. Honest limitations on this hard material: chord *qualities* are sometimes
 reduced (a softly-comped 7th drops to a triad, e.g. `Bbmaj7` → `Bb`), and a fully *chromatic*
 walking bass (as opposed to a root-emphasizing two-feel) stays ambiguous without beat-synchronous
-analysis — the natural next step, since the bar grid already exists. Real commercial recordings
-can't be bundled (copyright), but the app analyzes any file you drop in.
+analysis — the natural next step, since the bar grid already exists.
+
+### Real recordings + iReal Pro ground truth
+
+`realAudio.eval.test.ts` (gated behind `EVAL_AUDIO=1`, not part of `npm test`) analyses real WAVs
+dropped into `eval-audio/` and, when the filename matches a jazz standard, compares the detected
+**chord-quality distribution** against that tune's [iReal Pro](https://irealpro.com/) chart — the
+chords come from [mikeoliphant/JazzStandards](https://github.com/mikeoliphant/JazzStandards)
+(1,382 standards). Because real recordings are in unknown keys and unaligned, the metric is a
+transposition- and alignment-free cosine over quality families (dom7 / maj7 / m7 / m7b5 / dim /
+sus / …).
+
+Honest result on a genuinely real track — the 1925 Metropolitan Players *Sweet Georgia Brown*
+(public-domain, whose iReal chart is essentially all dominant 7ths): estimated key wrong, ~195
+tiny segments, and only **49% quality concordance**. Vintage acoustic fidelity is the killer —
+horn-era bandwidth (~200–3000 Hz), no defined bass for the bass-emphasis stage to lock onto, and
+banjo/ensemble noise that the extended-chord templates over-fit. This is the honest ceiling on
+*legally bundleable* jazz (public-domain = pre-1929 = lo-fi). The synthetic-arrangement numbers
+above reflect clean audio; a modern well-recorded jazz track sits between the two. The harness is
+the real deliverable: point it at your own (clean, known) recordings — `ffmpeg -i song.mp3 -ac 1
+-ar 22050 eval-audio/song.wav` — and it scores them against the iReal chart automatically.
 
 ## Melody robustness
 
