@@ -337,9 +337,29 @@ function beatSyncSegments(
     }
   }
 
+  // Refine the downbeat *phase* to align bar lines with where chords actually
+  // change: the beat tracker's absolute phase can be a fraction of a beat off
+  // and detectMeterDownbeat may pick a later bar line, which would start the
+  // lead-sheet grid mid-tune. Take the duration-weighted circular mean of the
+  // segment-start phases (mod one bar) — chord changes cluster on downbeats.
+  const barSec = (beatsPerBar * 60) / bpm;
+  let sx = 0;
+  let sy = 0;
+  for (const seg of segments) {
+    if (seg.start <= 0 || seg.label === 'N.C.') continue;
+    const w = Math.min(seg.end - seg.start, barSec);
+    const ang = (2 * Math.PI * (seg.start % barSec)) / barSec;
+    sx += w * Math.cos(ang);
+    sy += w * Math.sin(ang);
+  }
+  let phase = sx === 0 && sy === 0
+    ? beatTimes[Math.min(downbeatIndex, beatTimes.length - 1)] % barSec
+    : (Math.atan2(sy, sx) / (2 * Math.PI)) * barSec;
+  if (phase < 0) phase += barSec;
+
   const grid: BarGrid = {
     bpm: Math.round(bpm * 10) / 10,
-    downbeatSec: beatTimes[Math.min(downbeatIndex, beatTimes.length - 1)],
+    downbeatSec: phase,
     timeSignature: [beatsPerBar, 4],
   };
   return { segments, grid };
