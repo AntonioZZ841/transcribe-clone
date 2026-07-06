@@ -143,7 +143,7 @@ function fmtHist(h: Map<Family, number>): string {
 
 function report(name: string, samples: Float32Array, sampleRate: number): void {
   const t0 = Date.now();
-  const track = analyzeChords(samples, sampleRate, { voicings: false });
+  const track = analyzeChords(samples, sampleRate, { voicings: false, beatSync: true });
   const dur = samples.length / sampleRate;
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -163,7 +163,8 @@ function report(name: string, samples: Float32Array, sampleRate: number): void {
 
   const lines = [
     `=== ${name} === (${fmt(dur)}, analyzed in ${secs}s)`,
-    `estimated key: ${track.key ?? '?'}`,
+    `estimated key: ${track.key ?? '?'}` +
+      (track.grid ? `  |  tempo ${track.grid.bpm} BPM, ${track.grid.timeSignature.join('/')}` : ''),
     `${track.segments.length} segments, ${top.length} distinct chords, N.C. ${((ncTime / dur) * 100).toFixed(0)}% of time`,
     `top chords by time: ${top.slice(0, 14).map(([l, t]) => `${l}(${t.toFixed(0)}s)`).join('  ')}`,
     `sequence: ${seq.slice(0, 80).join(' -> ')}${seq.length > 80 ? ' ...' : ''}`,

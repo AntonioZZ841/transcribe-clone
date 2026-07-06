@@ -214,6 +214,35 @@ describe('jazz backing tracks: detection + label/voicing consistency', () => {
           0.7,
         );
       });
+
+      describe('beat-synchronous mode', () => {
+        const btrack = analyzeChords(samples, SR, { voicings: false, beatSync: true });
+
+        it('auto-detects tempo ~132 BPM and 4/4', () => {
+          expect(btrack.grid, 'grid').toBeTruthy();
+          expect(Math.abs(btrack.grid!.bpm - bpm) / bpm, `bpm ${btrack.grid!.bpm}`).toBeLessThan(0.06);
+          expect(btrack.grid!.timeSignature[0]).toBe(4);
+        });
+
+        it('detects bar roots at least as well as the frame path', () => {
+          let correct = 0;
+          prog.forEach((c, bar) => {
+            const seg = dominantAt(btrack, bar * barSec + barSec * 0.25, bar * barSec + barSec * 0.75);
+            if (seg && seg.root !== null && nameToPc(seg.root) === c.pcs[0]) correct++;
+          });
+          expect(correct / prog.length, `${correct}/${prog.length} bar roots (beat-sync)`).toBeGreaterThanOrEqual(
+            0.7,
+          );
+        });
+
+        it('produces beat-length segments (no sub-beat blips)', () => {
+          // every segment spans at least ~a beat — no frame-level over-segmentation
+          // (0.25s floor allows for the beat tracker's interval variation)
+          for (const seg of btrack.segments) {
+            expect(seg.end - seg.start, `segment ${seg.label}`).toBeGreaterThanOrEqual(0.25);
+          }
+        });
+      });
     });
   }
 }, 120000);

@@ -56,6 +56,7 @@ src/
     fft.ts           radix-2 FFT
     pitchSalience.ts peak detection + harmonic-suppressed greedy pitch picking
     predominantMelody.ts  Melodia-style f0 salience + Viterbi tracking + harmonic subtraction
+    beats.ts         onset envelope -> tempo (autocorrelation) -> DP beat tracking -> meter/downbeat
     chroma.ts        salience-based chroma (offline) + bin-folded chroma (live)
     chordTemplates.ts / chordMatch.ts   jazz template table + weighted scorer
     chordTrack.ts    frames → smoothing → matching → median filter → segments (+key)
@@ -122,9 +123,36 @@ isn't copyrightable; the audio is generated fresh) as full arrangements — root
 rootless piano comping + a bebop melody: a 12-bar F blues, Rhythm-changes-style A section in Bb,
 and a minor ii-V-i cycle in Gm. Observed: **~75–88% of bar roots correct**, and **100% label ↔
 voicing consistency**. Honest limitations on this hard material: chord *qualities* are sometimes
-reduced (a softly-comped 7th drops to a triad, e.g. `Bbmaj7` → `Bb`), and a fully *chromatic*
-walking bass (as opposed to a root-emphasizing two-feel) stays ambiguous without beat-synchronous
-analysis — the natural next step, since the bar grid already exists.
+reduced (a softly-comped 7th drops to a triad, e.g. `Bbmaj7` → `Bb`).
+
+## Beat-synchronous analysis + auto tempo/meter
+
+`beats.ts` derives a musical grid from the audio and the analysis can run **beat-synchronously**
+(`beatSync`, on in the app):
+
+1. **Onset envelope** — log-compressed spectral flux at a fine hop (~12 ms).
+2. **Tempo** — overlap-normalized, preference-weighted autocorrelation with parabolic-interpolated
+   peaks and octave correction (an accent every *other* beat, e.g. comping on 1 & 3, otherwise
+   halves the tempo).
+3. **Beats** — Ellis-style dynamic programming (maximize onset strength at beats − a
+   stray-from-period penalty).
+4. **Meter + downbeat** — chords change on downbeats, so per-beat harmonic-change novelty is
+   periodic at the bar length; it tests 4/4 vs 3/4 and every phase and picks the grouping whose
+   downbeats carry the most harmonic change.
+
+The chord analysis then aggregates the melody-subtracted chroma **per beat** and matches once per
+beat: averaging over a whole beat washes out a walking bass's passing tones while the downbeat
+root survives, and it aligns chords to musical time so the **lead-sheet grid (tempo / time
+signature / downbeat) auto-populates** — no manual tap needed. A confidence gate (onset
+periodicity) declines to beat-sync on material with no articulated beat (sustained pads), falling
+back to frame analysis + a manual grid.
+
+**Measured effect:** on the lo-fi 1925 *Sweet Georgia Brown*, beat-sync lifts the iReal
+quality-concordance from **49% → 59%** and makes `dom7` the top detected quality (matching the
+all-dominant chart), with auto tempo **117.9 BPM, 4/4**. On modern *AcidJazz* it reads **111 BPM,
+4/4**; on the synthetic arrangements, **132 BPM, 4/4** and bar-roots hold at ≥70%. Remaining gap:
+a fully *chromatic* walking bass is still harder than a root-emphasizing two-feel, and fast tracks
+still over-segment at the beat level (the lead sheet groups by bar, so the chart stays readable).
 
 ### Real recordings + iReal Pro ground truth
 

@@ -13,7 +13,8 @@ import {
 } from './predominantMelody';
 import { labelFor, matchChord } from './chordMatch';
 import { estimateVoicing, reconcileVoicing } from './voicing';
-import { NOTE_NAMES, nameToPc, type ChordSegment, type ChordTrack } from '../types';
+import { detectMeterDownbeat, estimateBeats } from './beats';
+import { NOTE_NAMES, nameToPc, type BarGrid, type ChordSegment, type ChordTrack } from '../types';
 
 export const FFT_SIZE = 8192;
 export const HOP = 4096;
@@ -21,10 +22,14 @@ const SMOOTH_FRAMES = 4; // ± frames of chroma stability window
 const MEDIAN_WINDOW = 5; // label median filter
 const MIN_SEGMENT_SEC = 0.35;
 const BASS_EMPHASIS = 0.45; // how strongly the bass register weights the chroma
+const ACTIVE_THRESHOLD = 0.15; // pc counts as "active" in a normalized frame
 
 export interface AnalyzeOptions {
   onProgress?: (fraction: number) => void;
   voicings?: boolean;
+  /** aggregate chroma per detected beat + auto tempo/meter (better on real
+   *  mixes; sets track.grid). Off by default so frame-level tests are stable. */
+  beatSync?: boolean;
 }
 
 interface FrameResult {
@@ -84,6 +89,24 @@ export function analyzeChords(
     if (i % 32 === 0) opts.onProgress?.(0.4 + (0.3 * i) / nFrames);
   }
 
+  const frameSec = HOP / sampleRate;
+  const frameOffset = FFT_SIZE / 2 / sampleRate; // center of the first frame
+  let segments: ChordSegment[] = [];
+  let grid: BarGrid | undefined;
+
+  // Beat-synchronous path: aggregate the melody-subtracted chroma per detected
+  // beat, auto-detect meter/downbeat, and match once per beat. Averaging over a
+  // whole beat tames a walking bass (its passing tones wash out while the
+  // downbeat root stays) and aligns chords to musical time for the lead sheet.
+  if (opts.beatSync) {
+    const bs = beatSyncSegments(chromas, bassChromas, energies, samples, sampleRate, frameOffset, frameSec);
+    if (bs) {
+      segments = bs.segments;
+      grid = bs.grid;
+    }
+  }
+
+  if (!grid) {
   // 2) stability smoothing + matching: per-pitch-class *median* over the
   //    window, not mean — a melody passing tone lights a pc for 1-3 frames
   //    and a median crushes it, while sustained harmony tones survive
@@ -93,7 +116,6 @@ export function analyzeChords(
   const stability = new Float32Array(12);
   const meanEnergy = energies.reduce((a, b) => a + b, 0) / nFrames;
   const windowVals: number[] = [];
-  const ACTIVE_THRESHOLD = 0.15; // pc counts as active in a (normalized) frame
   for (let i = 0; i < nFrames; i++) {
     const j0 = Math.max(0, i - SMOOTH_FRAMES);
     const j1 = Math.min(nFrames - 1, i + SMOOTH_FRAMES);
@@ -145,9 +167,6 @@ export function analyzeChords(
   const filtered = medianFilterLabels(frameResults, MEDIAN_WINDOW);
 
   // 4) merge into segments
-  const frameSec = HOP / sampleRate;
-  const frameOffset = FFT_SIZE / 2 / sampleRate; // center of first frame
-  let segments: ChordSegment[] = [];
   for (let i = 0; i < filtered.length; i++) {
     const t = i === 0 ? 0 : frameOffset + i * frameSec;
     const last = segments[segments.length - 1];
@@ -183,6 +202,7 @@ export function analyzeChords(
     }
   }
   segments = kept;
+  } // end frame-based path
 
   // 6) voicings per segment (skip N.C.), excluding the tracked lead melody so
   //    the sheet shows the comping/harmony rather than the melodic line
@@ -210,7 +230,119 @@ export function analyzeChords(
   }
 
   opts.onProgress?.(1);
-  return { key: estimateKey(keyChroma), segments };
+  return { key: estimateKey(keyChroma), segments, grid };
+}
+
+/**
+ * Beat-synchronous segmentation: detect tempo/beats, aggregate the per-frame
+ * (melody-subtracted) chroma into one vector per beat, detect meter + downbeat,
+ * match once per beat, then merge equal labels into beat-aligned segments.
+ * Returns null when too few beats were found (caller falls back to frames).
+ */
+function beatSyncSegments(
+  chromas: Float32Array[],
+  bassChromas: Float32Array[],
+  energies: number[],
+  samples: Float32Array,
+  sampleRate: number,
+  frameOffset: number,
+  frameSec: number,
+): { segments: ChordSegment[]; grid: BarGrid } | null {
+  const { bpm, beatTimes } = estimateBeats(samples, sampleRate);
+  if (beatTimes.length < 8) return null;
+  const duration = samples.length / sampleRate;
+  const bounds = [...beatTimes, duration];
+
+  const nBeats = beatTimes.length;
+  const beatChroma: Float32Array[] = [];
+  const beatBass: Float32Array[] = [];
+  const beatStab: Float32Array[] = [];
+  const beatEnergy: number[] = [];
+  for (let b = 0; b < nBeats; b++) {
+    const f0 = Math.max(0, Math.round((bounds[b] - frameOffset) / frameSec));
+    const f1 = Math.min(chromas.length - 1, Math.round((bounds[b + 1] - frameOffset) / frameSec));
+    const ch = new Float32Array(12);
+    const ba = new Float32Array(12);
+    const st = new Float32Array(12);
+    let e = 0;
+    let count = 0;
+    for (let f = f0; f <= f1; f++) {
+      for (let pc = 0; pc < 12; pc++) {
+        ch[pc] += chromas[f][pc];
+        ba[pc] += bassChromas[f][pc];
+        if (chromas[f][pc] > ACTIVE_THRESHOLD) st[pc] += 1;
+      }
+      e += energies[f];
+      count++;
+    }
+    if (count === 0) {
+      const f = Math.min(chromas.length - 1, Math.max(0, f0));
+      ch.set(chromas[f]);
+      ba.set(bassChromas[f]);
+      e = energies[f];
+      count = 1;
+    }
+    for (let pc = 0; pc < 12; pc++) st[pc] /= count;
+    normalize(ch);
+    normalize(ba);
+    beatChroma.push(ch);
+    beatBass.push(ba);
+    beatStab.push(st);
+    beatEnergy.push(e / count);
+  }
+
+  const { beatsPerBar, downbeatIndex } = detectMeterDownbeat(beatChroma);
+  const meanEnergy = beatEnergy.reduce((a, b) => a + b, 0) / nBeats;
+
+  // match per beat (with bass emphasis, as in the frame path)
+  const beatResults: FrameResult[] = [];
+  for (let b = 0; b < nBeats; b++) {
+    const ch = Float32Array.from(beatChroma[b]);
+    for (let pc = 0; pc < 12; pc++) ch[pc] += BASS_EMPHASIS * beatBass[b][pc];
+    normalize(ch);
+    const cand =
+      beatEnergy[b] < meanEnergy * 0.02
+        ? null
+        : matchChord(ch, beatBass[b], beatEnergy[b], beatStab[b]);
+    beatResults.push(
+      cand
+        ? {
+            label: cand.label,
+            root: NOTE_NAMES[cand.rootPc],
+            quality: cand.quality,
+            bass: cand.bassPc !== null ? NOTE_NAMES[cand.bassPc] : null,
+            confidence: cand.confidence,
+          }
+        : { label: 'N.C.', root: null, quality: null, bass: null, confidence: 0 },
+    );
+  }
+
+  const filtered = medianFilterLabels(beatResults, 3);
+  const segments: ChordSegment[] = [];
+  for (let b = 0; b < nBeats; b++) {
+    const last = segments[segments.length - 1];
+    if (last && last.label === filtered[b].label) {
+      last.end = bounds[b + 1];
+      last.confidence = Math.max(last.confidence, filtered[b].confidence);
+    } else {
+      segments.push({
+        start: b === 0 ? 0 : bounds[b],
+        end: bounds[b + 1],
+        label: filtered[b].label,
+        root: filtered[b].root,
+        quality: filtered[b].quality,
+        bass: filtered[b].bass,
+        confidence: filtered[b].confidence,
+      });
+    }
+  }
+
+  const grid: BarGrid = {
+    bpm: Math.round(bpm * 10) / 10,
+    downbeatSec: beatTimes[Math.min(downbeatIndex, beatTimes.length - 1)],
+    timeSignature: [beatsPerBar, 4],
+  };
+  return { segments, grid };
 }
 
 /** Distinct tracked-melody midi notes whose frame falls within [start, end). */

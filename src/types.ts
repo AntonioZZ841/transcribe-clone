@@ -28,6 +28,8 @@ export interface ChordTrack {
   /** estimated key, e.g. "F" or "Dm" */
   key: string | null;
   segments: ChordSegment[];
+  /** auto-detected tempo/meter/downbeat when beat-sync analysis ran */
+  grid?: BarGrid;
 }
 
 export interface BarGrid {

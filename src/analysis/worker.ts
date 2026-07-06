@@ -15,6 +15,7 @@ export type AnalyzeResponse =
 self.onmessage = (e: MessageEvent<AnalyzeRequest>) => {
   const { samples, sampleRate } = e.data;
   const track = analyzeChords(samples, sampleRate, {
+    beatSync: true, // auto tempo/meter + beat-aligned chords in the app
     onProgress: (fraction) => {
       (self as unknown as Worker).postMessage({ type: 'progress', fraction });
     },

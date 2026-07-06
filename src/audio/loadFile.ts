@@ -61,6 +61,8 @@ function startAnalysis(buffer: AudioBuffer, source: AnalysisSource): void {
       setAnalysisProgress(e.data.fraction);
     } else {
       setChordTrack(e.data.track);
+      // auto-populate the lead-sheet grid from detected tempo/meter/downbeat
+      if (e.data.track.grid) useStore.getState().setGrid(e.data.track.grid);
       setAnalysisProgress(-1);
     }
   };
